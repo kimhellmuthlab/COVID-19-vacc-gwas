@@ -49,18 +49,6 @@ rule pheno_overlap:
     script:
         "scripts/pheno.R"
 
-rule pheno_plot:
-    container: "/ictstr01/groups/itg/teams/kim-hellmuth/users/barbara.puzek/software/manhattan-plotting.sif"
-    input:
-        samplelist="{phenowc}_outs/genotype/samplelist.txt",
-        phenotable="phenotype/phenotype_at_s.csv"
-    output:
-        pdf="{phenowc}_outs/phenotype/{phenowc}_distr_plots.pdf"
-    params:
-        phenocol="{phenowc}"
-    script:
-        "scripts/phenoplot.R"
-
 rule covs_overlap:
     input:
         samplelist="{phenowc}_outs/genotype/samplelist.txt",
