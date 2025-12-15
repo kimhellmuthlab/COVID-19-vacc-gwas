@@ -8,7 +8,7 @@ Code and data related to "Genetic variation in HLA, IGKV and HHEX loci influence
 # Main Analysis steps
 
 ## Software environment:
-You can pull the singulairty container from
+You can pull the singularity container from
 
 `singularity pull oras://community.wave.seqera.io/library/bcftools_gemma_plink2_plink:4af92dd501f3810e`
 
