@@ -1,0 +1,438 @@
+container: ""
+
+SAMPLES = ["hg19koco"]
+
+genomic_build={"hg19koco":"b37"}
+strand_file={"koco":"input/GSAMD-24v3-0-EA_20034606_A1-b38.Source.strand", 
+             "hg19koco":"input/GSAMD-24v3-0-EA_20034606_A1-b37.Source.strand"}
+
+rule all:
+    input:
+        expand("outs/{sample}/{sample}.keep.rename.strandupdate.splitx.sexupdate.fam", sample = SAMPLES),
+        expand("outs/{sample}/{sample}.keep.rename.strandupdate.splitx.sexupdate.seximpute.23.xmiss.imiss", sample = SAMPLES),
+        expand("outs/{sample}/tab-{sample}.prefiltered.auto.mafgte1.noCR.pruned.genome.genome", sample = SAMPLES),
+        expand("outs/{sample}/{sample}.1kgoverlap.mds.mds", sample = SAMPLES),
+        expand("outs/{sample}/{sample}.prefiltered.miss.imiss", sample = SAMPLES),
+        expand("outs/{sample}/{sample}.prefiltered.auto.mafless1.imiss", sample = SAMPLES),
+        expand("outs/{sample}/{sample}.prefiltered.auto.mafgte1.imiss", sample = SAMPLES),
+        expand("outs/{sample}/{sample}.1kgoverlap.eigenvec", sample = SAMPLES),
+        expand( "outs/{sample}/{sample}.prefiltered.sampleqc.fam", sample = SAMPLES),
+        expand( "outs/{sample}/{sample}.prefiltered.sampleqc.varqc.bim", sample = SAMPLES),
+        expand( "outs/{sample}/{sample}.prefiltered.sampleqc.varqc-updated.bed", sample = SAMPLES),
+        expand( "outs/{sample}/{sample}.prefiltered.sampleqc.varqc-sanger.vcf.gz", sample = SAMPLES)
+
+rule keep:
+    input:
+        a="input/{sample}.fam", 
+        keep="input/keep.tsv"
+    output: 
+        "outs/{sample}/{sample}.keep.fam"
+    params:
+        "{sample}"
+    shell: 
+        "plink --bfile input/{params} --keep {input.keep} --make-bed --out outs/{params}/{params}.keep"
+
+rule rename:
+    input:
+        a="outs/{sample}/{sample}.keep.fam",
+        rename="input/rename.tsv"
+    output: 
+        "outs/{sample}/{sample}.keep.rename.fam"
+    params:
+        "outs/{sample}/{sample}.keep"
+    shell: 
+        """
+        plink --bfile {params} --update-ids {input.rename} --make-bed \\
+        --out {params}.rename
+        """
+
+rule strand_update:
+    input:
+        a=expand("outs/{sample}/{sample}.keep.rename.fam", sample=SAMPLES),
+        strandfile=lambda wildcards: strand_file[wildcards.sample]
+    output: 
+        "outs/{sample}/{sample}.keep.rename.strandupdate.fam"
+    params:
+        "outs/{sample}/{sample}.keep.rename"
+    shell: 
+        "scripts/update_build.sh {params} {input.strandfile} {params}.strandupdate"
+
+rule splitx:
+    input:
+        "outs/{sample}/{sample}.keep.rename.strandupdate.fam"
+    output: 
+        "outs/{sample}/{sample}.keep.rename.strandupdate.splitx.fam"
+    params:
+        namebase="outs/{sample}/{sample}.keep.rename.strandupdate",
+        build=lambda wildcards: genomic_build[wildcards.sample]
+    shell: 
+        "plink --bfile {params.namebase} --split-x {params.build} no-fail --make-bed --out {params.namebase}.splitx"
+
+rule updatesex:
+    input:
+        a="outs/{sample}/{sample}.keep.rename.strandupdate.splitx.fam",
+        updatesex="input/updatesex.tsv"
+    output: 
+        "outs/{sample}/{sample}.keep.rename.strandupdate.splitx.sexupdate.fam"
+    params:
+        "outs/{sample}/{sample}.keep.rename.strandupdate.splitx"
+    shell: 
+        "plink --bfile {params} --update-sex {input.updatesex} --make-bed --out {params}.sexupdate"
+
+rule imputesex:
+    input:
+        a="outs/{sample}/{sample}.keep.rename.strandupdate.splitx.sexupdate.fam"
+    output: 
+        "outs/{sample}/{sample}.keep.rename.strandupdate.splitx.sexupdate.seximpute.fam",
+        "outs/{sample}/{sample}.keep.rename.strandupdate.splitx.sexupdate.seximpute.sexcheck"
+    params:
+        "outs/{sample}/{sample}.keep.rename.strandupdate.splitx.sexupdate"
+    shell: 
+        "plink --bfile {params} --impute-sex ycount 0.5 0.8 2000 3000 --make-bed --out {params}.seximpute"
+
+rule chrxmiss:
+    input:
+        "outs/{sample}/{sample}.keep.rename.strandupdate.splitx.sexupdate.seximpute.fam"
+    output:
+        "outs/{sample}/{sample}.keep.rename.strandupdate.splitx.sexupdate.seximpute.23.xmiss.imiss"
+    params:
+        "outs/{sample}/{sample}.keep.rename.strandupdate.splitx.sexupdate.seximpute"
+    shell:
+        """
+        plink --bfile {params} --chr 23 --make-bed --out {params}.23 && \\
+        plink --bfile {params}.23 --missing --out {params}.23.xmiss
+        """
+
+rule prefilter:
+    input:
+        "outs/{sample}/{sample}.keep.rename.strandupdate.splitx.sexupdate.seximpute.fam"
+    output: 
+        "outs/{sample}/{sample}.prefiltered.fam"
+    params:
+        "outs/{sample}/{sample}"
+    shell: 
+        """plink --bfile {params}.keep.rename.strandupdate.splitx.sexupdate.seximpute \\
+        --allow-no-sex --geno 0.1 --mind 0.1 --make-bed --out {params}.prefiltered """
+
+rule callrate:
+    input:
+        "outs/{sample}/{sample}.prefiltered.fam"
+    output: 
+        "outs/{sample}/{sample}.prefiltered.miss.imiss"
+    params:
+        "outs/{sample}/{sample}.prefiltered"
+    shell: 
+        """plink --bfile {params} --missing --out {params}.miss """
+
+rule autosomes:
+    input:
+        "outs/{sample}/{sample}.prefiltered.fam"
+    output: 
+        "outs/{sample}/{sample}.prefiltered.auto.fam"
+    params:
+        "outs/{sample}/{sample}.prefiltered"
+    shell: 
+        """plink --bfile {params} --autosome --make-bed --out {params}.auto """
+
+rule mafgte1:
+    input:
+        "outs/{sample}/{sample}.prefiltered.auto.fam"
+    output: 
+        "outs/{sample}/{sample}.prefiltered.auto.mafgte1.bim"
+    params:
+        "outs/{sample}/{sample}.prefiltered.auto"
+    shell: 
+        """plink --bfile {params} --maf 0.01 --make-bed --out {params}.mafgte1 """
+
+rule mafless1:
+    input:
+        a="outs/{sample}/{sample}.prefiltered.auto.fam",
+        bim="outs/{sample}/{sample}.prefiltered.auto.mafgte1.bim"
+    output: 
+        "outs/{sample}/{sample}.prefiltered.auto.mafless1.bim"
+    params:
+        "outs/{sample}/{sample}.prefiltered.auto"
+    shell: 
+        """plink --bfile {params} --exclude {input.bim} --make-bed --out {params}.mafless1 """
+
+rule mafmiss:
+    input:
+        mafless="outs/{sample}/{sample}.prefiltered.auto.mafless1.bim",
+        mafgte="outs/{sample}/{sample}.prefiltered.auto.mafgte1.bim"
+    output: 
+        "outs/{sample}/{sample}.prefiltered.auto.mafless1.imiss",
+        "outs/{sample}/{sample}.prefiltered.auto.mafgte1.imiss"
+    params:
+        "outs/{sample}/{sample}.prefiltered.auto"
+    shell: 
+        """
+        plink --bfile {params}.mafless1 --missing  --out {params}.mafless1 && \\
+        plink --bfile {params}.mafgte1 --missing  --out {params}.mafgte1
+        """
+
+rule recode:
+    input:
+        mafless="outs/{sample}/{sample}.prefiltered.auto.mafless1.bim",
+        mafgte="outs/{sample}/{sample}.prefiltered.auto.mafgte1.bim"
+    output: 
+        "outs/{sample}/{sample}.prefiltered.auto.mafless1.recode.ped",
+        "outs/{sample}/{sample}.prefiltered.auto.mafgte1.recode.ped"
+    params:
+        "outs/{sample}/{sample}.prefiltered.auto"
+    shell: 
+        """
+        plink --bfile {params}.mafless1 --recode --out {params}.mafless1.recode && \\
+        plink --bfile {params}.mafgte1 --recode --out {params}.mafgte1.recode
+        """
+
+rule calchet_mafless:
+    input:
+        mafless="outs/{sample}/{sample}.prefiltered.auto.mafless1.recode.ped"
+    output: 
+        "outs/{sample}/Summary-{sample}.prefiltered.auto.mafless1.recode.ped",
+    params:
+        outdir="outs/{sample}/",
+        prefix="{sample}.prefiltered.auto"
+    resources:
+        mem_mb = 40000,
+        runtime_s = 60
+    shell: 
+        """
+        cd {params.outdir} &&
+        perl ../../scripts/calc_het.pl -f {params.prefix}.mafless1.recode.ped
+        """
+
+rule calchet_mafgte:
+    input:
+        mafgte="outs/{sample}/{sample}.prefiltered.auto.mafgte1.recode.ped"
+    output: 
+        "outs/{sample}/Summary-{sample}.prefiltered.auto.mafgte1.recode.ped"
+    params:
+        outdir="outs/{sample}/",
+        prefix="{sample}.prefiltered.auto"
+    resources:
+        mem_mb = 40000,
+        runtime_s = 60
+    shell: 
+        """
+        cd {params.outdir} &&
+        perl ../../scripts/calc_het.pl -f {params.prefix}.mafgte1.recode.ped
+        """
+
+rule excludecomplex:
+    input:
+        mafgte="outs/{sample}/{sample}.prefiltered.auto.mafgte1.bim",
+        compl="input/complex_regions.txt"
+    output: 
+        "outs/{sample}/{sample}.prefiltered.auto.mafgte1.noCR.bim"
+    params:
+        "outs/{sample}/{sample}.prefiltered.auto.mafgte1"
+    shell: 
+        """
+        plink --bfile {params} --exclude {input.compl} --range --make-bed --out {params}.noCR
+        """
+
+rule pruning:
+    input:
+        mafgte="outs/{sample}/{sample}.prefiltered.auto.mafgte1.noCR.bim"
+    output: 
+        "outs/{sample}/{sample}.prefiltered.auto.mafgte1.noCR.pruning.prune.in"
+    params:
+        "outs/{sample}/{sample}.prefiltered.auto.mafgte1.noCR"
+    shell: 
+        """
+        plink --bfile {params} --indep 50 5 1.25 --out {params}.pruning
+        """
+
+rule prune_remove:
+    input:
+        mafgte="outs/{sample}/{sample}.prefiltered.auto.mafgte1.noCR.bim",
+        prune="outs/{sample}/{sample}.prefiltered.auto.mafgte1.noCR.pruning.prune.in"
+    output: 
+        "outs/{sample}/{sample}.prefiltered.auto.mafgte1.noCR.pruned.bim"
+    params:
+        "outs/{sample}/{sample}.prefiltered.auto.mafgte1.noCR"
+    shell: 
+        """
+        plink --bfile {params} --extract {input.prune} --make-bed --out {params}.pruned
+        """
+
+rule pairwiseIBD:
+    input:
+        pruned="outs/{sample}/{sample}.prefiltered.auto.mafgte1.noCR.pruned.bim"
+    output: 
+        "outs/{sample}/{sample}.prefiltered.auto.mafgte1.noCR.pruned.genome.genome"
+    params:
+        "outs/{sample}/{sample}.prefiltered.auto.mafgte1.noCR.pruned"
+    shell: 
+        """
+        plink --bfile {params} --genome --out {params}.genome
+        """
+
+rule pairwiseIBD_tab:
+    input:
+        pruned="outs/{sample}/{sample}.prefiltered.auto.mafgte1.noCR.pruned.genome.genome"
+    output: 
+        "outs/{sample}/tab-{sample}.prefiltered.auto.mafgte1.noCR.pruned.genome.genome"
+    params:
+        outdir="outs/{sample}/",
+        file="{sample}.prefiltered.auto.mafgte1.noCR.pruned.genome.genome"
+    shell: 
+        """
+        cd {params.outdir} && \\
+        perl ../../scripts/space_to_tab.pl {params.file}
+        """
+
+rule mappingfile:
+    input:
+        auto="outs/{sample}/{sample}.prefiltered.auto.fam"
+    params:
+        auto="outs/{sample}/{sample}.prefiltered.auto"
+    output:
+        "outs/{sample}/{sample}mappingfile-chr-pos.txt"
+    shell:
+        """
+        awk 'OFS="\\t" {{$3=$1":"$4; print}}' {params.auto}.bim | cut -f 2,3 > {output} 
+        """
+
+rule onekgoverlap:
+    input:
+        "outs/{sample}/{sample}.prefiltered.auto.fam",
+        mapping="outs/{sample}/{sample}mappingfile-chr-pos.txt",
+        onekg="input/1kg_chr1_22_missnp.bim",
+        compl="input/complex_regions.txt"
+    output:
+        "outs/{sample}/{sample}.1kgoverlap.eigenvec"
+    threads: 6
+    resources:
+        mem_mb = 20000
+    params:
+        compl="outs/{sample}/{sample}.prefiltered.auto",
+        base="outs/{sample}/{sample}",
+        onekg="input/1kg_chr1_22_missnp"
+    shell:
+        """
+        plink --bfile {params.compl} --update-map {input.mapping} \\
+        --update-name --make-bed --out {params.compl}.chrpos && \\
+        plink --bfile {params.onekg} --extract {params.compl}.chrpos.bim \\
+        --make-bed --out {params.base}.1kgoverlap_left &&
+        plink --bfile {params.compl}.chrpos --extract {params.base}.1kgoverlap_left.bim \\
+        --make-bed --out {params.base}.1kgoverlap_right &&
+        plink --bfile {params.base}.1kgoverlap_left \\
+        --bmerge {params.base}.1kgoverlap_right.bed {params.base}.1kgoverlap_right.bim {params.base}.1kgoverlap_right.fam \\
+        --make-bed --out {params.base}.1kgoverlap || true &&
+        plink --bfile {params.base}.1kgoverlap_left --exclude {params.base}.1kgoverlap-merge.missnp \\
+        --make-bed --out {params.base}.1kgoverlap_left.missnpout  &&
+        plink --bfile {params.base}.1kgoverlap_right --exclude {params.base}.1kgoverlap-merge.missnp \\
+        --make-bed --out {params.base}.1kgoverlap_right.missnpout  && 
+        plink --bfile {params.base}.1kgoverlap_left.missnpout \\
+        --bmerge {params.base}.1kgoverlap_right.missnpout.bed {params.base}.1kgoverlap_right.missnpout.bim \\
+        {params.base}.1kgoverlap_right.missnpout.fam --make-bed --out {params.base}.1kgoverlap &&
+        plink --bfile {params.base}.1kgoverlap --autosome --maf 0.01 --exclude range {input.compl} \\
+        --make-bed --out {params.base}.1kgoverlap.noCR.mafgte1 &&
+        plink --bfile {params.base}.1kgoverlap.noCR.mafgte1 --indep 50 5 1.25 \\
+        --out {params.base}.1kgoverlap.noCR.mafgte1.pruning && \\
+        plink --bfile {params.base}.1kgoverlap.noCR.mafgte1 \\
+        --extract {params.base}.1kgoverlap.noCR.mafgte1.pruning.prune.in \\
+        --make-bed --out {params.base}.1kgoverlap.noCR.mafgte1.pruned &&
+        plink --bfile {params.base}.1kgoverlap.noCR.mafgte1.pruned --pca  --out {params.base}.1kgoverlap
+        """
+        
+rule mds:
+    input:
+        "outs/{sample}/{sample}.1kgoverlap.eigenvec"
+    output:
+        "outs/{sample}/{sample}.1kgoverlap.mds.mds"
+    params:
+        base="outs/{sample}/{sample}"
+    shell:
+        """
+        plink --bfile {params.base}.1kgoverlap.noCR.mafgte1.pruned --genome --out \\
+        {params.base}.1kgoverlap.noCR.mafgte1.pruned.genome && \\
+        plink --bfile {params.base}.1kgoverlap \\
+        --read-genome {params.base}.1kgoverlap.noCR.mafgte1.pruned.genome.genome \\
+        --cluster --mds-plot 10 --out {params.base}.1kgoverlap.mds
+        """
+
+rule rm_sampleQC:
+    input:
+        "outs/{sample}/{sample}.prefiltered.fam",
+        rm="input/{sample}-removeQC.txt"
+    output:
+        "outs/{sample}/{sample}.prefiltered.sampleqc.fam"
+    params:
+        "outs/{sample}/{sample}.prefiltered"
+    shell:
+        "plink --bfile {params} --remove {input.rm} --make-bed --out {params}.sampleqc"
+
+# # ################## VARIANT QC #######################
+
+rule varqc_autosome:
+    input:
+        "outs/{sample}/{sample}.prefiltered.sampleqc.fam",
+    output:
+        "outs/{sample}/{sample}.prefiltered.sampleqc.auto.qcd.fam"
+    params:
+        "outs/{sample}/{sample}.prefiltered.sampleqc"
+    shell:
+        """
+        plink --bfile {params} --autosome --make-bed --out {params}.auto && \\
+        plink --bfile {params}.auto --hwe 0.0001 --geno 0.02 --pfilter 1E-4 \\
+        --make-bed --out {params}.auto.qcd
+        """
+
+rule varqc_par:
+    input:
+        "outs/{sample}/{sample}.prefiltered.sampleqc.fam",
+    output:
+        "outs/{sample}/{sample}.prefiltered.sampleqc.par.qcd.fam"
+    params:
+        "outs/{sample}/{sample}.prefiltered.sampleqc"
+    shell:
+        """
+        plink --bfile {params} --chr 25 --hwe 0.0001 --geno 0.02 --pfilter 1E-4 \\
+         --make-bed --out {params}.par.qcd
+        """
+
+rule varqc_nonpar:
+    input:
+        "outs/{sample}/{sample}.prefiltered.sampleqc.fam",
+    output:
+        "outs/{sample}/{sample}.prefiltered.sampleqc.nonpar.qcd.fam"
+    params:
+        "outs/{sample}/{sample}.prefiltered.sampleqc"
+    shell:
+        """
+        plink --bfile {params} --filter-females --chr 23 \\
+        --hwe 0.0001 \\
+        --from-bp 2699520 --to-bp 154931044 --make-bed --out {params}.fem && \\
+        plink --bfile {params} --filter-males --chr 23 \\
+        --from-bp 2699520 --to-bp 154931044 --make-bed --out {params}.male &&
+
+        cut -f 2 {params}.fem.bim > Inclusions1 &&
+        cut -f 2 {params}.male.bim > Inclusions2 &&
+        comm -1 -2 <(sort Inclusions1) <(sort Inclusions2) > Inclusions3 &&
+        
+        plink --bfile {params} --chr 23 --extract Inclusions3 --geno 0.98 \\
+        --make-bed --out {params}.nonpar.qcd &&
+
+        rm Inclusions*
+
+        """
+
+rule varqc_merging:
+    input:
+        "outs/{sample}/{sample}.prefiltered.sampleqc.par.qcd.fam",
+        "outs/{sample}/{sample}.prefiltered.sampleqc.nonpar.qcd.fam",
+        "outs/{sample}/{sample}.prefiltered.sampleqc.auto.qcd.fam"
+    output:
+        "outs/{sample}/{sample}.prefiltered.sampleqc.varqc.bim",
+        "outs/{sample}/{sample}.prefiltered.sampleqc.X.qcd.bim"
+    params:
+        "outs/{sample}/{sample}.prefiltered.sampleqc"
+    shell:
+        """
+        plink --bfile {params}.par.qcd --bmerge {params}.nonpar.qcd --make-bed --out {params}.2325.qcd && \\
+        plink --bfile {params}.2325.qcd --merge-x --make-bed --out {params}.X.qcd && \\
+        plink --bfile {params}.X.qcd --bmerge {params}.auto.qcd --make-bed --out {params}.varqc
+        """

@@ -1,0 +1,201 @@
+container: ""
+
+wildcard_constraints: 
+    lastpc="[0-9]+",
+    outdir="[^0-9]+"
+
+# Parameters
+chrs = list(range(1, 23))
+kinship_chrs = list(range(1, 23))
+fixed_covs = []
+phenotypes = []
+lp = []
+vcfbase = ""
+
+# Rules
+rule all:
+    input:
+        expand("{phenowc}_outs/chr{chromosome}_{lastpc}_PCs/chr{chromosome}_{lastpc}_PCs.assoc.txt", lastpc=lp, phenowc=phenotypes, chromosome=chrs),
+        expand("{phenowc}_{lastpc}PCs_outs_summary.txt.gz", phenowc=phenotypes, lastpc=lp),
+        expand("{phenowc}_{lastpc}PCs_manhattan.pdf", phenowc=phenotypes, lastpc=lp),
+        expand("{phenowc}_outs/phenotype/{phenowc}_distr_plots.pdf", phenowc=phenotypes),
+        expand("{phenowc}_outs/phenotype/{lastpc}_PCs_usedcovs.txt", lastpc=lp, phenowc=phenotypes),
+        expand("{phenowc}_outs/genotype/merged_leadregions.vcf.gz", phenowc=phenotypes)
+
+rule get_sample_list:
+    output:
+        "{phenowc}_outs/genotype/samplelist.txt"
+    input:
+        vcf=vcfbase + "22.dose.vcf_typed.vcf.gz"
+    params:
+        outdir="{phenowc}_outs"
+    shell:
+        """
+        mkdir -p {params.outdir}
+        mkdir -p {params.outdir}/genotype
+        mkdir -p {params.outdir}/phenotype
+        bcftools query -l {input.vcf} > {output}
+        """
+
+rule pheno_overlap:
+    input:
+        samplelist="{phenowc}_outs/genotype/samplelist.txt",
+        phenotable="phenotype/phenotype_at_s.csv"
+    output:
+        pheno="{phenowc}_outs/phenotype/pheno.txt",
+        samples_extract="{phenowc}_outs/genotype/samples_to_extract.txt"
+    params:
+        phenocol="{phenowc}"
+    script:
+        "scripts/pheno.R"
+
+rule pheno_plot:
+    container: "/ictstr01/groups/itg/teams/kim-hellmuth/users/barbara.puzek/software/manhattan-plotting.sif"
+    input:
+        samplelist="{phenowc}_outs/genotype/samplelist.txt",
+        phenotable="phenotype/phenotype_at_s.csv"
+    output:
+        pdf="{phenowc}_outs/phenotype/{phenowc}_distr_plots.pdf"
+    params:
+        phenocol="{phenowc}"
+    script:
+        "scripts/phenoplot.R"
+
+rule covs_overlap:
+    input:
+        samplelist="{phenowc}_outs/genotype/samplelist.txt",
+        phenotable="phenotype/phenotype_at_s.csv"
+    output:
+        covs="{phenowc}_outs/phenotype/{lastpc}_PCs_covs.txt"
+    params:
+        covs=fixed_covs,
+        phenocol="{phenowc}",
+        lastpc="{lastpc}",
+        outdir="{phenowc}_outs"
+    resources:
+        mem_mb = 4000
+    script:
+        "scripts/covs.R"
+
+rule covs_log:
+    input:
+        samplelist="{phenowc}_outs/genotype/samplelist.txt",
+        phenotable="phenotype/phenotype_at_s.csv"
+    output:
+        "{phenowc}_outs/phenotype/{lastpc}_PCs_usedcovs.txt"
+    params:
+        covs=fixed_covs
+    shell:
+        "echo {params.covs} > {output}"
+
+rule bb_all:
+    input:
+        samples_extract="{phenowc}_outs/genotype/samples_to_extract.txt",
+        vcf=vcfbase + "{chromosome}.dose.vcf_maf005.vcf.gz"
+    output:
+        temp("{phenowc}_outs/genotype/chr{chromosome}.bb.gz")
+    params:
+        vcfbase=vcfbase
+    threads: 1
+    resources:
+        mem_mb=2000,
+        runtime_s=60
+    shell:
+        """
+        bcftools view -S {input.samples_extract} {input.vcf} | \\
+        bcftools query -f '%ID %ALT %REF[ %DS]\\n' | gzip > {output}
+        """
+
+rule bb_anno:
+    input:
+        samples_extract="{phenowc}_outs/genotype/samples_to_extract.txt",
+        vcf=vcfbase + "{chromosome}.dose.vcf_maf005.vcf.gz"
+    output:
+        temp("{phenowc}_outs/genotype/chr{chromosome}.anno")
+    params:
+        vcfbase=vcfbase
+    threads: 1
+    resources:
+        mem_mb=2000,
+        runtime_s=90
+    shell:
+        """
+        bcftools view -S {input.samples_extract} {input.vcf} | \\
+        bcftools query -f '%ID %POS %CHROM\\n' > {output}
+        """
+
+rule bb_typed:
+    input:
+        vcf=vcfbase + "{kin_chr}.dose.vcf_typed.vcf.gz",
+        samples_extract="{phenowc}_outs/genotype/samples_to_extract.txt"
+    output:
+        temp("{phenowc}_outs/genotype/chr{kin_chr}.typed.bb.gz")
+    params:
+        vcfbase=vcfbase
+    shell:
+        """
+        bcftools view -S {input.samples_extract} {input.vcf} | \\
+        bcftools query -f '%ID %REF %ALT[ %DS]\\n' | gzip > {output}
+        """
+
+rule kinship_all:
+    input:
+        bb_perchr=expand("{phenowc}_outs/genotype/chr{kin_chr}.typed.bb.gz", phenowc=phenotypes, kin_chr=kinship_chrs),
+        pheno="{phenowc}_outs/phenotype/pheno.txt"
+    output:
+        "{phenowc}_outs/genotype/kinship.cXX.txt"
+    params:
+        genodest="{phenowc}_outs/genotype"
+    resources:
+        mem_mb=100000,
+        runtime_s=240
+    shell:
+        """
+        cat {input.bb_perchr} > {params.genodest}/genotype.bb.gz &&
+        gemma -g {params.genodest}/genotype.bb.gz -p {input.pheno} -gk -outdir {params.genodest}/ -o kinship &&
+        rm {params.genodest}/genotype.bb.gz
+        """
+
+rule all_bed:
+    input:
+        vcf=expand(vcfbase + "{chromosome}.filt.vcf.gz", chromosome=chrs),
+        extract=expand("{phenowc}_outs/genotype/samples_to_extract.txt", phenowc=phenotypes)
+    output:
+        temp(multiext("{phenowc}_outs/genotype/chr{chromosome}", ".bed", ".bim", ".fam"))
+    params:
+        plinkout="{phenowc}_outs/genotype/chr{chromosome}"
+    shell:
+        """
+        plink2 --vcf {input.vcf} dosage=DS --keep {input.extract} --make-bed --out {params.plinkout}
+        """
+
+rule run_assoc:
+    input:
+        kinship="{phenowc}_outs/genotype/kinship.cXX.txt",
+        geno="{phenowc}_outs/genotype/chr{chromosome}.bb.gz",
+        anno="{phenowc}_outs/genotype/chr{chromosome}.anno",
+        pheno="{phenowc}_outs/phenotype/pheno.txt",
+        covs="{phenowc}_outs/phenotype/{lastpc}_PCs_covs.txt"
+    output:
+        "{phenowc}_outs/chr{chromosome}_{lastpc}_PCs/chr{chromosome}_{lastpc}_PCs.assoc.txt"
+    resources:
+        mem_mb=lambda wildcards: int(wildcards.lastpc) * 2000,
+        runtime_s=60*8
+        # runtime_s=lambda wildcards: int(wildcards.lastpc) * 400
+    params:
+        outdir="{phenowc}_outs/chr{chromosome}_{lastpc}_PCs",
+        prefix="chr{chromosome}_{lastpc}_PCs"
+    shell:
+        """
+        gemma -g {input.geno} -p {input.pheno} -c {input.covs} -k {input.kinship} -a {input.anno} -lmm -outdir {params.outdir} -o {params.prefix}
+        """
+
+rule summarizer:
+    input:
+        expand("{{phenowc}}_outs/chr{chromosome}_{{lastpc}}_PCs/chr{chromosome}_{{lastpc}}_PCs.assoc.txt", chromosome=chrs)
+    output:
+        "{phenowc}_{lastpc}PCs_outs_summary.txt.gz"
+    resources:
+        mem_mb=2000
+    shell:
+        "cat {input} | gzip > {output}"
