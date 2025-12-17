@@ -22,7 +22,7 @@ GWAS Catalog ID: GCP001506
 
 
 ## GWAS meta-analysis summary statistics and per-cohort HLA-was summary statistics
-`wget https://github.com/hmgu-itg/COVID-19-vacc-gwas/releases/download/submission/data_availability.zip`
+`wget https://github.com/kimhellmuthlab/COVID-19-vacc-gwas/releases/download/submission/data_availability.zip`
 
 # Main Analysis steps
 
