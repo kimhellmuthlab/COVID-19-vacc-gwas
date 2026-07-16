@@ -8,8 +8,6 @@ Code and data related to "Genetic variation in HLA, IGKV and HHEX loci influence
 
 ## Per-cohort GWAS summary statistics:
 
-GWAS Catalog ID: GCP001506
-
 [GWAS of anti-S antibody concentrations after two COVID-19 vaccinations (RisCoin cohort)](http://ftp.ebi.ac.uk/pub/databases/gwas/summary_statistics/GCST90726001-GCST90727000/GCST90726556)
 
 [GWAS of anti-S antibody concentrations after three COVID-19 vaccinations (RisCoin cohort)](http://ftp.ebi.ac.uk/pub/databases/gwas/summary_statistics/GCST90726001-GCST90727000/GCST90726557)
