@@ -20,7 +20,7 @@ Code and data related to "Genetic variation in HLA, IGKV and HHEX loci influence
 
 
 ## GWAS meta-analysis summary statistics and per-cohort HLA-was summary statistics
-`wget https://github.com/kimhellmuthlab/COVID-19-vacc-gwas/releases/download/submission/data_availability.zip`
+`wget https://github.com/kimhellmuthlab/COVID-19-vacc-gwas/releases/download/data_code_doi_2/data_availability.zip`
 
 # Main Analysis steps
 
